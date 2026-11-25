@@ -59,8 +59,8 @@ Future choices concerning garment segmentation, calibrated colour transformation
 Download or clone this repository:
 
 ```bash
-git clone https://github.com/serena042026/AI-Clothing-Colour-Correction.git
-cd AI-Clothing-Colour-Correction
+git clone https://github.com/serena042026/AI_Colour_Correction.git
+cd AI_Colour_Correction
 ```
 
 Install the required dependencies:
