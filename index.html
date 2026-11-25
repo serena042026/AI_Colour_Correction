@@ -1,0 +1,121 @@
+<!doctype html>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Clothing Colour Correction · IIS Lab 4</title>
+<style>
+ body{font:16px/1.5 system-ui,Arial,sans-serif;margin:0;min-height:100vh;background:#fff}
+ main{padding:24px;max-width:1100px;margin:auto} aside{padding:24px;background:#f5f7f8}
+ .turn{margin:8px 0;padding:10px 14px;border-radius:12px;background:#eef1f3;max-width:80%}
+ .me{background:#003b5c;color:#fff;margin-left:auto}
+ button{margin:4px 6px 0 0;padding:8px 12px;border:1px solid #00694e;background:#fff;border-radius:18px;cursor:pointer}
+ .card{padding:12px;border-radius:10px;background:#d6e8e2;margin-bottom:12px} .note{color:#4a4a4a;font-size:14px}
+ .warning{padding:12px;border-left:4px solid #a54100;background:#fff1e8;color:#5c2500}
+ .panel{border:1px solid #d7dfe4;border-radius:16px;padding:18px;margin:14px 0 24px;background:#fafcfd}
+ .panel h2{margin-top:0} .row{display:flex;flex-wrap:wrap;gap:12px;align-items:center;margin:10px 0}
+ .row label{display:flex;gap:6px;align-items:center} .row input[type=range]{width:110px}
+ textarea{box-sizing:border-box;width:100%;padding:10px;font:inherit;border:1px solid #b7c4ca;border-radius:9px;min-height:65px} .feedback{background:#f0f6f4;border-radius:12px;padding:14px;margin-top:18px} .feedback button{font-size:14px} .photo{max-width:100%;max-height:330px;object-fit:contain;border-radius:8px;cursor:crosshair;touch-action:none}
+ .images{display:grid;grid-template-columns:1fr 1fr;gap:14px;align-items:start} .images img{width:100%;max-height:330px;object-fit:contain}
+ .status{white-space:pre-line;padding:10px;border-radius:8px;background:#eef2f4;margin:8px 0}
+ .subtle{font-size:13px;color:#52616b} .images>div{min-width:0} .images canvas,.images img{display:block;max-width:100%;margin-top:8px} .images img:not([src]){display:none} input[type=file]{max-width:370px;padding:8px;font:inherit;border:1px solid #bbb;border-radius:8px}select{padding:7px;border-radius:8px} [hidden]{display:none!important}
+ @media(max-width:700px){body{grid-template-columns:1fr}main{border-right:0;border-bottom:1px solid #ddd;padding:16px}aside{padding:16px}input{box-sizing:border-box}}
+</style>
+<main>
+  <h1>AI-Assisted Clothing Colour Correction</h1>
+  <p class="subtle">Lab 3 design → Lab 4 runnable prototype · Human-in-the-loop (user confirms important choices)</p>
+  <section class="panel">
+    <h2>1 · Upload &amp; reference assessment</h2>
+    <div class="row"><label>Clothing photo <input id="photoFile" type="file" accept="image/png,image/jpeg,image/webp"></label>
+    <label>Reference <select id="ref"><option value="none">No reference</option><option value="paper">White paper</option><option value="chart">Colour chart</option></select></label>
+    <label id="sourceRow" hidden>Reference source <select id="refSource"><option value="same">Same photo</option><option value="separate">Separate photo</option></select></label></div>
+    <div id="separateRow" hidden><label>Reference photo <input id="referenceFile" type="file" accept="image/png,image/jpeg,image/webp"></label><p class="subtle">Use a photo taken under the same lighting and camera settings as the garment. Otherwise the reference may be unreliable.</p><div><strong>Reference photo · drag to select a clean area</strong><canvas id="referenceCanvas" class="photo"></canvas></div></div>
+    <p class="subtle">For paper/chart, choose where the reference is located and drag to select a clean area in that image. Avoid text, shadows and highlights. A colour chart cannot be calibrated without known patch values.</p>
+    <div class="images"><div><strong>Original · drag to select reference</strong><br><canvas id="original" class="photo"></canvas></div>
+    <div><strong>Correction preview</strong><br><img id="preview" alt="Correction preview"></div></div>
+    <div class="row"><label>Brightness <input id="brightness" type="range" min="0.5" max="1.5" step="0.05" value="1"><span id="bv">1.00</span></label>
+    <label>Saturation <input id="saturation" type="range" min="0.5" max="1.5" step="0.05" value="1"><span id="sv">1.00</span></label></div>
+    <div class="row"><label>Warmth <input id="warmth" type="range" min="-0.5" max="0.5" step="0.05" value="0"><span id="wv">0.00</span></label>
+    <label>Contrast <input id="contrast" type="range" min="0.5" max="1.5" step="0.05" value="1"><span id="cv">1.00</span></label></div>
+    <div class="feedback"><h2>2 · Tell the system what looks wrong</h2>
+    <p class="subtle">Describe the result naturally. The prototype interprets common feedback using transparent rules, proposes a small change and lets you accept or undo it.</p>
+    <div class="row"><button type="button" class="quick" data-feedback="too grey">Too grey / dull</button><button type="button" class="quick" data-feedback="too yellow">Too yellow</button><button type="button" class="quick" data-feedback="too blue">Too blue</button><button type="button" class="quick" data-feedback="too dark">Too dark</button><button type="button" class="quick" data-feedback="too bright">Too bright</button><button type="button" class="quick" data-feedback="too saturated">Too saturated</button></div>
+    <textarea id="feedbackText" placeholder="e.g. The purple looks too grey. Please make it more vivid."></textarea>
+    <div class="row"><button type="button" id="applyFeedback">Propose adjustment</button><button type="button" id="undo" disabled>Undo last adjustment</button></div>
+    <div id="feedbackStatus" class="status" role="status">No feedback yet.</div></div>
+    <div class="row"><button id="analyse">Generate preview</button><button id="accept" disabled>Confirm &amp; log preview</button><button id="reset">Reset adjustments</button></div>
+    <div id="colourStatus" class="status" role="status">Upload a clothing photo to start. No image is uploaded to an external service.</div>
+  </section>
+</main>
+<script>
+const file=document.getElementById('photoFile'), canvas=document.getElementById('original'),ctx=canvas.getContext('2d');
+const status=document.getElementById('colourStatus'), preview=document.getElementById('preview');
+const refType=document.getElementById('ref'), refSource=document.getElementById('refSource');
+const refFile=document.getElementById('referenceFile'), refCanvas=document.getElementById('referenceCanvas'), refCtx=refCanvas.getContext('2d');
+let refUploaded=null, refData=null, refSelection=null, refDragging=null;
+let uploaded=null, selection=null, dragging=null, pending=null, history=[];
+let updateTimer=null, updateSequence=0, cachedImageData=null;
+function draw(){
+ if(!uploaded)return;
+ ctx.clearRect(0,0,canvas.width,canvas.height);ctx.drawImage(uploaded,0,0,canvas.width,canvas.height);
+ if(selection){let [x1,y1,x2,y2]=selection;ctx.strokeStyle='#ff6000';ctx.lineWidth=3;ctx.strokeRect(x1*canvas.width,y1*canvas.height,(x2-x1)*canvas.width,(y2-y1)*canvas.height);}
+}
+function point(e,target=canvas){let r=target.getBoundingClientRect();return [Math.max(0,Math.min(1,(e.clientX-r.left)/r.width)),Math.max(0,Math.min(1,(e.clientY-r.top)/r.height))];}
+function separateActive(){return refType.value!=='none' && refSource.value==='separate';}
+function drawReference(){if(!refUploaded)return;refCtx.clearRect(0,0,refCanvas.width,refCanvas.height);refCtx.drawImage(refUploaded,0,0,refCanvas.width,refCanvas.height);if(refSelection){const [x1,y1,x2,y2]=refSelection;refCtx.strokeStyle='#ff6000';refCtx.lineWidth=3;refCtx.strokeRect(x1*refCanvas.width,y1*refCanvas.height,(x2-x1)*refCanvas.width,(y2-y1)*refCanvas.height);}}
+function updateReferenceUI(){document.getElementById('sourceRow').hidden=refType.value==='none';document.getElementById('separateRow').hidden=!separateActive();selection=null;refSelection=null;draw();drawReference();schedulePreview();}
+refCanvas.addEventListener('pointerdown',e=>{if(!refUploaded||!separateActive())return;refDragging=point(e,refCanvas);refCanvas.setPointerCapture(e.pointerId);refSelection=null;});
+refCanvas.addEventListener('pointermove',e=>{if(!refDragging)return;const q=point(e,refCanvas);refSelection=[Math.min(refDragging[0],q[0]),Math.min(refDragging[1],q[1]),Math.max(refDragging[0],q[0]),Math.max(refDragging[1],q[1])];drawReference();});
+refCanvas.addEventListener('pointerup',()=>{refDragging=null;drawReference();if(refSelection)schedulePreview();});
+refFile.addEventListener('change',()=>{refUploaded=null;refData=null;refSelection=null;refCanvas.width=0;refCanvas.height=0;pending=null;document.getElementById('accept').disabled=true;const f=refFile.files[0];if(!f){schedulePreview();return;}if(!['image/png','image/jpeg','image/webp'].includes(f.type)){status.textContent='Use a PNG, JPEG or WEBP reference photo.';return;}if(f.size>8_000_000){status.textContent='Reference photo must be under 8 MB.';return;}const reader=new FileReader();reader.onload=()=>{refData=reader.result;const img=new Image();img.onload=()=>{refUploaded=img;const scale=Math.min(1,640/img.width,350/img.height);refCanvas.width=Math.max(1,Math.round(img.width*scale));refCanvas.height=Math.max(1,Math.round(img.height*scale));drawReference();status.textContent='Reference photo loaded. Select a clean, uniform reference area in the reference photo.';schedulePreview();};img.src=reader.result;};reader.readAsDataURL(f);});
+canvas.addEventListener('pointerdown',e=>{if(!uploaded||separateActive()||refType.value==='none')return;dragging=point(e);canvas.setPointerCapture(e.pointerId);selection=null;});
+canvas.addEventListener('pointermove',e=>{if(!dragging)return;let q=point(e);selection=[Math.min(dragging[0],q[0]),Math.min(dragging[1],q[1]),Math.max(dragging[0],q[0]),Math.max(dragging[1],q[1])];draw();});
+canvas.addEventListener('pointerup',()=>{dragging=null;draw();if(selection && uploaded && document.getElementById('ref').value!=='none')schedulePreview();});
+file.addEventListener('change',()=>{
+ clearTimeout(updateTimer);updateSequence++;uploaded=null;selection=null;pending=null;cachedImageData=null;history=[];document.getElementById('undo').disabled=true;preview.removeAttribute('src');document.getElementById('accept').disabled=true;canvas.width=0;canvas.height=0;
+ const f=file.files[0];if(!f)return;
+ if(!['image/png','image/jpeg','image/webp'].includes(f.type)){status.textContent='Use a PNG, JPEG or WEBP image.';return;}
+ const reader=new FileReader();reader.onload=()=>{
+  cachedImageData=reader.result;preview.removeAttribute('src');
+  const img=new Image();img.onload=()=>{uploaded=img;selection=null;pending=null;document.getElementById('accept').disabled=true;
+   let scale=Math.min(1,640/img.width,350/img.height);canvas.width=Math.round(img.width*scale);canvas.height=Math.round(img.height*scale);draw();
+   status.textContent='Photo loaded. Move brightness/saturation sliders for automatic preview, or click Generate preview.';schedulePreview();};img.src=reader.result;
+ };reader.readAsDataURL(f);
+});
+function schedulePreview(){clearTimeout(updateTimer);if(uploaded)updateTimer=setTimeout(()=>document.getElementById('analyse').click(),300);}
+refType.addEventListener('change',updateReferenceUI);refSource.addEventListener('change',updateReferenceUI);updateReferenceUI();
+for(const [id,out] of [['brightness','bv'],['saturation','sv'],['warmth','wv'],['contrast','cv']]){
+ document.getElementById(id).addEventListener('input',e=>{
+  document.getElementById(out).textContent=(+e.target.value).toFixed(2);
+  // Debounce requests: update the preview shortly after the slider moves.
+  schedulePreview();
+ });
+}
+document.getElementById('reset').onclick=()=>{clearTimeout(updateTimer);updateSequence++;document.getElementById('brightness').value=1;document.getElementById('saturation').value=1;document.getElementById('bv').textContent='1.00';document.getElementById('sv').textContent='1.00';document.getElementById('warmth').value=0;document.getElementById('wv').textContent='0.00';document.getElementById('contrast').value=1;document.getElementById('cv').textContent='1.00';history=[];document.getElementById('undo').disabled=true;selection=null;pending=null;preview.removeAttribute('src');document.getElementById('accept').disabled=true;draw();status.textContent='Adjustments reset. Original image is unchanged.';schedulePreview();};
+document.getElementById('analyse').onclick=async()=>{
+ const requestId=++updateSequence;
+ if(!uploaded){status.textContent='Please upload a clothing photo first.';return;}
+ if(separateActive()&&!refData){status.textContent='Please upload a separate reference photo and select a clean area.';return;}
+ status.textContent='Processing image locally…';pending=null;document.getElementById('accept').disabled=true;
+ try{const payload={image:cachedImageData||'',
+ reference:refType.value,reference_source:refType.value==='none'?'none':refSource.value,reference_image:separateActive()?refData:null,box:separateActive()?refSelection:selection,brightness:+document.getElementById('brightness').value,saturation:+document.getElementById('saturation').value,warmth:+document.getElementById('warmth').value,contrast:+document.getElementById('contrast').value};
+ const r=await fetch('/api/colour',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});const data=await r.json();if(requestId!==updateSequence)return;if(!r.ok)throw Error(data.error);
+ preview.src=data.preview;pending=data.settings;document.getElementById('accept').disabled=false;
+ status.textContent='Reference confidence: '+data.confidence_label.toUpperCase()+'\n'+data.warnings.join('\n')+'\n'+data.reply;
+ }catch(e){if(requestId===updateSequence)status.textContent='Could not process image: '+e.message;}
+};
+function getSettings(){return Object.fromEntries(['brightness','saturation','warmth','contrast'].map(k=>[k,+document.getElementById(k).value]));}
+function setSettings(values){for(const [key,out] of [['brightness','bv'],['saturation','sv'],['warmth','wv'],['contrast','cv']]){document.getElementById(key).value=values[key];document.getElementById(out).textContent=(+values[key]).toFixed(2);}}
+const feedbackStatus=document.getElementById('feedbackStatus');
+async function proposeFeedback(message){
+ if(!uploaded){feedbackStatus.textContent='Upload a clothing photo first.';return;}
+ try{const r=await fetch('/api/colour/feedback',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({message,settings:getSettings()})});
+ const data=await r.json();if(!r.ok)throw Error(data.error);
+ feedbackStatus.textContent=data.reply;
+ if(data.understood && JSON.stringify(data.settings)!==JSON.stringify(getSettings())){
+  history.push(getSettings());document.getElementById('undo').disabled=false;
+  setSettings(data.settings);schedulePreview();
+ }
+ }catch(e){feedbackStatus.textContent='Feedback error: '+e.message;}
+}
+document.querySelectorAll('.quick').forEach(b=>b.addEventListener('click',()=>{document.getElementById('feedbackText').value=b.dataset.feedback;proposeFeedback(b.dataset.feedback);}));
+document.getElementById('applyFeedback').onclick=()=>proposeFeedback(document.getElementById('feedbackText').value);
+document.getElementById('undo').onclick=()=>{if(!history.length)return;setSettings(history.pop());document.getElementById('undo').disabled=!history.length;feedbackStatus.textContent='Previous adjustment restored. Review the preview.';schedulePreview();};
+document.getElementById('accept').onclick=async()=>{if(!pending)return;const r=await fetch('/api/colour/confirm',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({settings:pending})});const d=await r.json();status.textContent=d.reply||d.error;document.getElementById('accept').disabled=true;};
+</script>
